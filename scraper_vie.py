@@ -367,7 +367,6 @@ def scraper_offres_vie():
         except:
             total = 9999
         
-        click_more_count = 0
         while True:
             elements = page.query_selector_all('.figure_container')
             print(f"📊 Chargées : {len(elements)}/{total}")
@@ -378,14 +377,10 @@ def scraper_offres_vie():
             try:
                 btn = page.query_selector('a.btn_bleu_vert.see-more-btn')
                 if btn and btn.is_visible():
-                    if click_more_count >= 3:
-                        print("🛑 Limite atteinte : 3 clics sur 'more'")
-                        break
                     btn.scroll_into_view_if_needed()
                     time.sleep(1)
                     btn.click(force=True)
                     time.sleep(1)
-                    click_more_count += 1
                 else:
                     break
             except:
@@ -398,19 +393,34 @@ def scraper_offres_vie():
         offres = []
         for el in elements:
             try:
-                titre_el = el.query_selector('h2')
+                content_el = el.query_selector('figcaption.offer-content') or el
+
+                titre_el = content_el.query_selector('h2.mission-title') or content_el.query_selector('h2:not(.location)') or el.query_selector('h2')
                 titre = titre_el.inner_text().strip() if titre_el else 'N/A'
-                
-                entreprise_el = el.query_selector('h3.organization')
+
+                entreprise_el = content_el.query_selector('h3.organization') or el.query_selector('h3.organization')
                 entreprise = entreprise_el.inner_text().strip() if entreprise_el else 'N/A'
-                
-                lieu_el = el.query_selector('.location')
+
+                lieu_el = content_el.query_selector('h2.location') or content_el.query_selector('.location') or el.query_selector('.location')
                 lieu = lieu_el.inner_text().strip() if lieu_el else 'N/A'
-                
+
+                mission_el = content_el.query_selector('h4.mission-excerpt')
+                mission = mission_el.inner_text().strip() if mission_el else ''
+
+                meta_items = []
+                meta_list = content_el.query_selector_all('ul.meta-list li') if content_el else []
+                for li in meta_list:
+                    text = li.inner_text().strip()
+                    if text:
+                        meta_items.append(text)
+                meta = " | ".join(meta_items)
+
                 offres.append({
                     'titre': titre,
                     'entreprise': entreprise,
                     'lieu': lieu,
+                    'mission': mission,
+                    'meta': meta,
                     'date': datetime.now().strftime('%Y-%m-%d')
                 })
             except:
@@ -455,17 +465,41 @@ def envoyer_email(offres):
         return
     
     print(f"📧 Envoi email ({len(offres)} offres)...")
+
+    def _format_offre_html(offre, index):
+        mission = f"<br><strong>📝</strong> {offre['mission']}" if offre.get('mission') else ''
+        meta = f"<br><strong>ℹ️</strong> {offre['meta']}" if offre.get('meta') else ''
+        return (
+            f"<div style=\"margin:20px 0;padding:20px;background:white;border-left:4px solid #667eea;border-radius:8px;\">"
+            f"<h3 style=\"color:#667eea;margin:0;\">{index}. {offre['titre']}</h3>"
+            f"<p><strong>🏢</strong> {offre['entreprise']}<br>"
+            f"<strong>📍</strong> {offre['lieu']}{mission}{meta}</p></div>"
+        )
+
+    items_html = ''.join(_format_offre_html(o, i + 1) for i, o in enumerate(offres))
     
-    html = f"""<html><body style="font-family:Arial;max-width:800px;margin:0 auto;">
-    <div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:30px;text-align:center;border-radius:10px 10px 0 0;">
-        <h1>🎯 {len(offres)} nouvelle(s) offre(s) VIE</h1>
-        <p>{datetime.now().strftime('%d/%m/%Y à %H:%M')}</p>
-    </div>
-    <div style="padding:20px;background:#f7f7f7;">
-        {''.join([f'<div style="margin:20px 0;padding:20px;background:white;border-left:4px solid #667eea;border-radius:8px;"><h3 style="color:#667eea;margin:0;">{i+1}. {o["titre"]}</h3><p><strong>🏢</strong> {o["entreprise"]}<br><strong>📍</strong> {o["lieu"]}</p></div>' for i,o in enumerate(offres)])}
-    </div>
-    <div style="text-align:center;padding:20px;color:#888;"><p>🤖 Scraper VIE automatique</p></div>
-    </body></html>"""
+    html = f"""<html>
+    <body style="margin:0;padding:0;background:#eef1f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+        <div style="max-width:860px;margin:32px auto;background:#ffffff;border-radius:16px;box-shadow:0 12px 40px rgba(15,23,42,0.12);overflow:hidden;">
+            <div style="background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;padding:28px 32px;">
+                <div style="font-size:12px;letter-spacing:0.14em;text-transform:uppercase;color:#cbd5f5;">VIE Daily Digest</div>
+                <h1 style="margin:8px 0 6px;font-size:26px;line-height:1.2;">{len(offres)} nouvelle(s) offre(s)</h1>
+                <div style="font-size:13px;color:#cbd5f5;">{datetime.now().strftime('%d/%m/%Y à %H:%M')}</div>
+            </div>
+            <div style="padding:24px 28px;background:#f8fafc;">
+                <div style="display:inline-block;background:#e2e8f0;color:#0f172a;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;">
+                    Sélection filtrée • {len(offres)} résultats
+                </div>
+                <div style="margin-top:16px;display:flex;flex-direction:column;gap:14px;">
+                    {items_html}
+                </div>
+            </div>
+            <div style="padding:18px 28px;color:#64748b;font-size:12px;background:#ffffff;border-top:1px solid #e2e8f0;text-align:center;">
+                Scraper VIE automatique — Simple • Efficace • Moderne
+            </div>
+        </div>
+    </body>
+    </html>"""
     
     msg = MIMEMultipart('alternative')
     msg['Subject'] = f"🎯 {len(offres)} nouvelle(s) offre(s) VIE - {datetime.now().strftime('%d/%m/%Y')}"
