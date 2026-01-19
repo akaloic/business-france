@@ -22,6 +22,27 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v4
 
+            - name: Download latest DB artifact (if any)
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  ARTIFACT_ID=$(gh api \
+                    -H "Accept: application/vnd.github+json" \
+                    "/repos/${{ github.repository }}/actions/artifacts?per_page=100" \
+                    --jq '.artifacts | map(select(.name=="offres_vie_db")) | sort_by(.created_at) | last | .id')
+                  if [ -z "$ARTIFACT_ID" ] || [ "$ARTIFACT_ID" = "null" ]; then
+                    echo "No previous DB artifact found."
+                    exit 0
+                  fi
+                  echo "Downloading artifact ID: $ARTIFACT_ID"
+                  gh api \
+                    -H "Accept: application/vnd.github+json" \
+                    "/repos/${{ github.repository }}/actions/artifacts/${ARTIFACT_ID}/zip" \
+                    > /tmp/offres_vie_db.zip
+                  unzip -o /tmp/offres_vie_db.zip -d .
+              continue-on-error: true
+
             - name: Setup Python
               uses: actions/setup-python@v5
               with:
@@ -45,3 +66,11 @@ jobs:
             - name: Run scraper
               run: |
                   python scraper_vie.py
+
+            - name: Upload DB artifact
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: offres_vie_db
+                  path: offres_vie.db
+                  if-no-files-found: warn
